@@ -3,7 +3,7 @@ module github.com/slidebolt/plugin-zigbee2mqtt
 go 1.24.0
 
 require (
-	github.com/eclipse/paho.mqtt.golang v1.5.0
+	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/nats-io/nats.go v1.48.0 // indirect
 )
 
@@ -20,6 +20,6 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/sync v0.7.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 )
