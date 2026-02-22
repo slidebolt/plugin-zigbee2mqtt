@@ -105,14 +105,12 @@ func (a *MQTTAdapter) ensureWired(entKey string, ent sdk.Entity, stateTopic, com
 			defer a.wg.Done()
 			if err := a.client.Subscribe(stateTopic, func(t string, p []byte) {
 				stateMap := parseStatePayload(p)
-				power, state := payloadToState(p, stateMap, payloadOn)
-				_ = ent.UpdateState("active")
+				power, _ := payloadToState(p, stateMap, payloadOn)
 
-				// Publish richer live state for UI cards/controls.
+				// Functional state goes to Properties.
 				if len(stateMap) > 0 {
-					stateMap["power"] = state
-					stateMap["state"] = power
-					_ = ent.Publish(fmt.Sprintf("entity.%s.state", ent.ID()), stateMap)
+					stateMap["power"] = power
+					_ = ent.UpdateProperties(stateMap)
 				}
 			}); err != nil {
 				a.bundle.Log().Error("MQTT state subscribe failed (%s): %v", stateTopic, err)
@@ -128,11 +126,11 @@ func (a *MQTTAdapter) ensureWired(entKey string, ent sdk.Entity, stateTopic, com
 		mqttPayload, statePatch := buildMQTTPayloadForCommand(cmd, p, payloadOn, payloadOff)
 		if mqttPayload != "" {
 			_ = a.client.Publish(commandTopic, mqttPayload)
-			power, state := payloadToState([]byte(fmt.Sprintf("%v", statePatch["state"])), statePatch, payloadOn)
-			statePatch["power"] = state
-			statePatch["state"] = power
-			_ = ent.UpdateState("active")
-			_ = ent.Publish(fmt.Sprintf("entity.%s.state", ent.ID()), statePatch)
+			power, _ := payloadToState([]byte(fmt.Sprintf("%v", statePatch["state"])), statePatch, payloadOn)
+			statePatch["power"] = power
+			
+			// Optimistically update properties.
+			_ = ent.UpdateProperties(statePatch)
 		}
 	})
 }
