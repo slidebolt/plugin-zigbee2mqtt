@@ -15,6 +15,7 @@ type MQTTAdapter struct {
 	client logic.MQTTClient
 	mu     sync.Mutex
 	wired  map[string]bool
+	wg     sync.WaitGroup
 }
 
 func NewMQTTAdapter(b sdk.Bundle, client logic.MQTTClient) *MQTTAdapter {
@@ -23,6 +24,10 @@ func NewMQTTAdapter(b sdk.Bundle, client logic.MQTTClient) *MQTTAdapter {
 		client: client,
 		wired:  make(map[string]bool),
 	}
+}
+
+func (a *MQTTAdapter) Wait() {
+	a.wg.Wait()
 }
 
 func (a *MQTTAdapter) HandleDiscovery(topic string, payload []byte) {
@@ -95,7 +100,9 @@ func (a *MQTTAdapter) ensureWired(entKey string, ent sdk.Entity, stateTopic, com
 
 	// Listen for state (including JSON payloads like Zigbee2MQTT)
 	if stateTopic != "" {
+		a.wg.Add(1)
 		go func() {
+			defer a.wg.Done()
 			if err := a.client.Subscribe(stateTopic, func(t string, p []byte) {
 				stateMap := parseStatePayload(p)
 				power, state := payloadToState(p, stateMap, payloadOn)

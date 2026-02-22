@@ -2,8 +2,9 @@ package bundle
 
 import (
 	"os"
-	 "github.com/slidebolt/plugin-zigbee2mqtt/pkg/device"
-	 "github.com/slidebolt/plugin-zigbee2mqtt/pkg/logic"
+
+	"github.com/slidebolt/plugin-zigbee2mqtt/pkg/device"
+	"github.com/slidebolt/plugin-zigbee2mqtt/pkg/logic"
 	"github.com/slidebolt/plugin-sdk"
 )
 
@@ -23,6 +24,15 @@ func (p *MQTTPlugin) Init(b sdk.Bundle) error {
 
 	p.start()
 	return nil
+}
+
+func (p *MQTTPlugin) Shutdown() {
+	if p.Client != nil {
+		p.Client.Disconnect()
+	}
+	if p.Adapter != nil {
+		p.Adapter.Wait()
+	}
 }
 
 func (p *MQTTPlugin) start() {
@@ -77,6 +87,4 @@ func (p *MQTTPlugin) start() {
 	p.Bundle.Log().Info("MQTT Plugin Connected to %s", url)
 }
 
-func NewPlugin() sdk.Plugin {
-	return &MQTTPlugin{}
-}
+func NewPlugin() *MQTTPlugin { return &MQTTPlugin{} }
