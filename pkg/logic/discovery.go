@@ -59,3 +59,41 @@ func PayloadToString(v interface{}) string {
 		return ""
 	}
 }
+
+func ExtractValueKey(template string) string {
+	if template == "" {
+		return ""
+	}
+	
+	t := strings.ReplaceAll(template, " ", "")
+	
+	// Normalize bracket notation to dot notation for easier extraction
+	// e.g. value_json['update']['state'] -> value_json.update.state
+	t = strings.ReplaceAll(t, "']['", ".")
+	t = strings.ReplaceAll(t, "'][\"", ".")
+	t = strings.ReplaceAll(t, "\"]['", ".")
+	t = strings.ReplaceAll(t, "\"][\"", ".")
+	t = strings.ReplaceAll(t, "['", ".")
+	t = strings.ReplaceAll(t, "[\"", ".")
+	t = strings.ReplaceAll(t, "']", "")
+	t = strings.ReplaceAll(t, "\"]", "")
+
+	// Handle normalized dot notation
+	if strings.Contains(t, "value_json.") {
+		start := strings.Index(t, "value_json.") + 11
+		end := start
+		for end < len(t) {
+			char := t[end]
+			if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '.' || char == '_' {
+				end++
+			} else {
+				break
+			}
+		}
+		if end > start {
+			return t[start:end]
+		}
+	}
+
+	return ""
+}
