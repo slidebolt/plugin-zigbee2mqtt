@@ -39,8 +39,12 @@ func NewPlugin() *PluginZigbee2mqttPlugin {
 
 func (p *PluginZigbee2mqttPlugin) OnInitialize(_ runner.Config, state types.Storage) (types.Manifest, types.Storage) {
 	p.cfg = loadZ2MConfigFromEnv()
+	p.discovered = make(map[string]discoveredEntity)
 	if len(state.Data) > 0 {
 		_ = json.Unmarshal(state.Data, &p.discovered)
+	}
+	if p.discovered == nil {
+		p.discovered = make(map[string]discoveredEntity)
 	}
 	return types.Manifest{ID: "plugin-zigbee2mqtt", Name: "Plugin Zigbee2mqtt", Version: "1.0.0"}, state
 }
