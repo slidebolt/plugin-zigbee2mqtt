@@ -39,7 +39,7 @@ func loadZ2MConfigFromEnv() z2mConfig {
 		),
 	}
 	if cfg.DiscoveryTopic == "" {
-		cfg.DiscoveryTopic = "homeassistant/#"
+		cfg.DiscoveryTopic = "slidebolt/discovery/#"
 	}
 	if cfg.BaseTopic == "" {
 		cfg.BaseTopic = "zigbee2mqtt"

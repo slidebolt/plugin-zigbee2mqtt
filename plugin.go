@@ -69,6 +69,12 @@ func (p *PluginZigbee2mqttPlugin) OnReady() {
 	log.Printf("plugin-zigbee2mqtt: subscribed to %q", p.cfg.DiscoveryTopic)
 }
 
+func (p *PluginZigbee2mqttPlugin) OnShutdown() {
+	if p.client != nil {
+		p.client.Disconnect()
+	}
+}
+
 func (p *PluginZigbee2mqttPlugin) OnHealthCheck() (string, error) {
 	return "perfect", nil
 }
@@ -91,7 +97,19 @@ func (p *PluginZigbee2mqttPlugin) OnDeviceCreate(dev types.Device) (types.Device
 func (p *PluginZigbee2mqttPlugin) OnDeviceUpdate(dev types.Device) (types.Device, error) {
 	return dev, nil
 }
-func (p *PluginZigbee2mqttPlugin) OnDeviceDelete(id string) error { return nil }
+func (p *PluginZigbee2mqttPlugin) OnDeviceDelete(id string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Find the device key from the ID (reverse of z2mDeviceID)
+	// Actually, we can just iterate and remove anything that matches this device ID
+	for k, v := range p.discovered {
+		if z2mDeviceID(v.DeviceKey) == id {
+			delete(p.discovered, k)
+		}
+	}
+	return nil
+}
 
 func (p *PluginZigbee2mqttPlugin) OnDevicesList(current []types.Device) ([]types.Device, error) {
 	p.mu.RLock()
@@ -138,7 +156,18 @@ func (p *PluginZigbee2mqttPlugin) OnDeviceSearch(q types.SearchQuery, res []type
 
 func (p *PluginZigbee2mqttPlugin) OnEntityCreate(e types.Entity) (types.Entity, error) { return e, nil }
 func (p *PluginZigbee2mqttPlugin) OnEntityUpdate(e types.Entity) (types.Entity, error) { return e, nil }
-func (p *PluginZigbee2mqttPlugin) OnEntityDelete(d, e string) error                    { return nil }
+func (p *PluginZigbee2mqttPlugin) OnEntityDelete(d, e string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for k, v := range p.discovered {
+		if z2mDeviceID(v.DeviceKey) == d && z2mEntityID(v.UniqueID) == e {
+			delete(p.discovered, k)
+			break
+		}
+	}
+	return nil
+}
 
 func (p *PluginZigbee2mqttPlugin) OnEntitiesList(d string, c []types.Entity) ([]types.Entity, error) {
 	p.mu.RLock()
