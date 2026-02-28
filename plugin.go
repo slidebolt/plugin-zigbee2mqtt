@@ -31,13 +31,15 @@ type PluginZigbee2mqttPlugin struct {
 
 	mu         sync.RWMutex
 	discovered map[string]discoveredEntity
+	rawStore   runner.RawStore
 }
 
 func NewPlugin() *PluginZigbee2mqttPlugin {
 	return &PluginZigbee2mqttPlugin{discovered: map[string]discoveredEntity{}}
 }
 
-func (p *PluginZigbee2mqttPlugin) OnInitialize(_ runner.Config, state types.Storage) (types.Manifest, types.Storage) {
+func (p *PluginZigbee2mqttPlugin) OnInitialize(config runner.Config, state types.Storage) (types.Manifest, types.Storage) {
+	p.rawStore = config.RawStore
 	p.cfg = loadZ2MConfigFromEnv()
 	p.discovered = make(map[string]discoveredEntity)
 	if len(state.Data) > 0 {
@@ -90,7 +92,6 @@ func (p *PluginZigbee2mqttPlugin) OnStorageUpdate(current types.Storage) (types.
 }
 
 func (p *PluginZigbee2mqttPlugin) OnDeviceCreate(dev types.Device) (types.Device, error) {
-	dev.Config = types.Storage{Meta: "plugin-zigbee2mqtt-metadata"}
 	return dev, nil
 }
 
@@ -139,12 +140,15 @@ func (p *PluginZigbee2mqttPlugin) OnDevicesList(current []types.Device) ([]types
 			"device_name": ent.DeviceName,
 		})
 		
+		if p.rawStore != nil {
+			_ = p.rawStore.WriteRawDevice(deviceID, cfgData)
+		}
+
 		discoveredDev := types.Device{
 			ID:         deviceID,
 			SourceID:   ent.DeviceKey,
 			SourceName: name,
 			// LocalName intentionally left blank; the Wall handles it
-			Config:     types.Storage{Meta: "z2m-device", Data: cfgData},
 		}
 
 		if existing, ok := byID[deviceID]; ok {
@@ -202,6 +206,9 @@ func (p *PluginZigbee2mqttPlugin) OnEntitiesList(d string, c []types.Entity) ([]
 			"payload_off":   discovered.PayloadOff,
 			"value_key":     discovered.ValueKey,
 		})
+		if p.rawStore != nil {
+			_ = p.rawStore.WriteRawEntity(d, entityID, cfgData)
+		}
 		name := strings.TrimSpace(discovered.Name)
 		if name == "" {
 			name = discovered.UniqueID
@@ -211,7 +218,6 @@ func (p *PluginZigbee2mqttPlugin) OnEntitiesList(d string, c []types.Entity) ([]
 			DeviceID:  d,
 			Domain:    mapDomain(discovered.EntityType),
 			LocalName: name,
-			Config:    types.Storage{Meta: "z2m-entity", Data: cfgData},
 		}
 	}
 
