@@ -138,20 +138,20 @@ func (p *PluginZigbee2mqttPlugin) OnDevicesList(current []types.Device) ([]types
 			"device_key":  ent.DeviceKey,
 			"device_name": ent.DeviceName,
 		})
-		dev := types.Device{
+		
+		discoveredDev := types.Device{
 			ID:         deviceID,
 			SourceID:   ent.DeviceKey,
 			SourceName: name,
-			LocalName:  name,
+			// LocalName intentionally left blank; the Wall handles it
 			Config:     types.Storage{Meta: "z2m-device", Data: cfgData},
 		}
-		// If device already exists (loaded from disk), preserve its LocalName
+
 		if existing, ok := byID[deviceID]; ok {
-			if existing.LocalName != "" {
-				dev.LocalName = existing.LocalName
-			}
+			byID[deviceID] = runner.ReconcileDevice(existing, discoveredDev)
+		} else {
+			byID[deviceID] = runner.ReconcileDevice(types.Device{}, discoveredDev)
 		}
-		byID[deviceID] = dev
 	}
 
 	out := make([]types.Device, 0, len(byID))
