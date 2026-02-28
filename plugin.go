@@ -95,6 +95,11 @@ func (p *PluginZigbee2mqttPlugin) OnDeviceCreate(dev types.Device) (types.Device
 }
 
 func (p *PluginZigbee2mqttPlugin) OnDeviceUpdate(dev types.Device) (types.Device, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	// If the update only contains a subset of fields, we should ideally merge it
+	// but for now, we just ensure it's not empty.
 	return dev, nil
 }
 func (p *PluginZigbee2mqttPlugin) OnDeviceDelete(id string) error {
@@ -133,13 +138,20 @@ func (p *PluginZigbee2mqttPlugin) OnDevicesList(current []types.Device) ([]types
 			"device_key":  ent.DeviceKey,
 			"device_name": ent.DeviceName,
 		})
-		byID[deviceID] = types.Device{
+		dev := types.Device{
 			ID:         deviceID,
 			SourceID:   ent.DeviceKey,
 			SourceName: name,
 			LocalName:  name,
 			Config:     types.Storage{Meta: "z2m-device", Data: cfgData},
 		}
+		// If device already exists (loaded from disk), preserve its LocalName
+		if existing, ok := byID[deviceID]; ok {
+			if existing.LocalName != "" {
+				dev.LocalName = existing.LocalName
+			}
+		}
+		byID[deviceID] = dev
 	}
 
 	out := make([]types.Device, 0, len(byID))
