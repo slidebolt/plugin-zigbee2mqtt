@@ -7,7 +7,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/slidebolt/sdk-entities/light"
 	runner "github.com/slidebolt/sdk-runner"
 	"github.com/slidebolt/sdk-types"
 )
@@ -32,6 +34,10 @@ type PluginZigbee2mqttPlugin struct {
 	mu         sync.RWMutex
 	discovered map[string]discoveredEntity
 	rawStore   runner.RawStore
+	eventSink  runner.EventSink
+
+	discoveryTimer     *time.Timer
+	isInitialDiscovery bool
 }
 
 func NewPlugin() *PluginZigbee2mqttPlugin {
@@ -40,6 +46,7 @@ func NewPlugin() *PluginZigbee2mqttPlugin {
 
 func (p *PluginZigbee2mqttPlugin) OnInitialize(config runner.Config, state types.Storage) (types.Manifest, types.Storage) {
 	p.rawStore = config.RawStore
+	p.eventSink = config.EventSink
 	p.cfg = loadZ2MConfigFromEnv()
 	p.discovered = make(map[string]discoveredEntity)
 	if len(state.Data) > 0 {
@@ -62,13 +69,38 @@ func (p *PluginZigbee2mqttPlugin) OnReady() {
 		log.Printf("plugin-zigbee2mqtt: MQTT connect failed: %v", err)
 		return
 	}
+
+	p.mu.Lock()
+	p.isInitialDiscovery = true
+	// Start a timer that will signal we are "ready" after 300ms of MQTT silence
+	p.discoveryTimer = time.NewTimer(300 * time.Millisecond)
+	p.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		<-p.discoveryTimer.C
+		p.mu.Lock()
+		p.isInitialDiscovery = false
+		p.mu.Unlock()
+		close(done)
+	}()
+
 	if err := client.Subscribe(p.cfg.DiscoveryTopic, p.handleDiscoveryMessage); err != nil {
 		log.Printf("plugin-zigbee2mqtt: discovery subscribe failed: %v", err)
 		client.Disconnect()
 		return
 	}
+
 	p.client = client
-	log.Printf("plugin-zigbee2mqtt: subscribed to %q", p.cfg.DiscoveryTopic)
+	log.Printf("plugin-zigbee2mqtt: subscribed to %q, waiting for discovery burst (ready when silent for 300ms)...", p.cfg.DiscoveryTopic)
+
+	// Block OnReady until we have processed the initial burst or timeout
+	select {
+	case <-done:
+		log.Printf("plugin-zigbee2mqtt: initial discovery burst complete")
+	case <-time.After(5 * time.Second):
+		log.Printf("plugin-zigbee2mqtt: discovery burst wait timed out (hard timeout 5s), proceeding")
+	}
 }
 
 func (p *PluginZigbee2mqttPlugin) OnShutdown() {
@@ -96,19 +128,13 @@ func (p *PluginZigbee2mqttPlugin) OnDeviceCreate(dev types.Device) (types.Device
 }
 
 func (p *PluginZigbee2mqttPlugin) OnDeviceUpdate(dev types.Device) (types.Device, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	// If the update only contains a subset of fields, we should ideally merge it
-	// but for now, we just ensure it's not empty.
 	return dev, nil
 }
+
 func (p *PluginZigbee2mqttPlugin) OnDeviceDelete(id string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Find the device key from the ID (reverse of z2mDeviceID)
-	// Actually, we can just iterate and remove anything that matches this device ID
 	for k, v := range p.discovered {
 		if z2mDeviceID(v.DeviceKey) == id {
 			delete(p.discovered, k)
@@ -148,7 +174,6 @@ func (p *PluginZigbee2mqttPlugin) OnDevicesList(current []types.Device) ([]types
 			ID:         deviceID,
 			SourceID:   ent.DeviceKey,
 			SourceName: name,
-			// LocalName intentionally left blank; the Wall handles it
 		}
 
 		if existing, ok := byID[deviceID]; ok {
@@ -189,6 +214,8 @@ func (p *PluginZigbee2mqttPlugin) OnEntitiesList(d string, c []types.Entity) ([]
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
+	log.Printf("plugin-zigbee2mqtt: OnEntitiesList called for device %q, current entities count: %d", d, len(c))
+
 	byID := make(map[string]types.Entity, len(c))
 	for _, ent := range c {
 		byID[ent.ID] = ent
@@ -199,6 +226,7 @@ func (p *PluginZigbee2mqttPlugin) OnEntitiesList(d string, c []types.Entity) ([]
 			continue
 		}
 		entityID := z2mEntityID(discovered.UniqueID)
+		log.Printf("plugin-zigbee2mqtt: match found! entity %q (domain=%s) for device %q", entityID, discovered.EntityType, d)
 		cfgData, _ := json.Marshal(map[string]any{
 			"state_topic":   discovered.StateTopic,
 			"command_topic": discovered.CommandTopic,
@@ -213,11 +241,19 @@ func (p *PluginZigbee2mqttPlugin) OnEntitiesList(d string, c []types.Entity) ([]
 		if name == "" {
 			name = discovered.UniqueID
 		}
-		byID[entityID] = types.Entity{
+
+		ent := types.Entity{
 			ID:        entityID,
 			DeviceID:  d,
 			Domain:    mapDomain(discovered.EntityType),
 			LocalName: name,
+		}
+
+		if existing, ok := byID[entityID]; ok {
+			ent.Data = existing.Data
+			byID[entityID] = ent
+		} else {
+			byID[entityID] = ent
 		}
 	}
 
@@ -230,16 +266,82 @@ func (p *PluginZigbee2mqttPlugin) OnEntitiesList(d string, c []types.Entity) ([]
 }
 
 func (p *PluginZigbee2mqttPlugin) OnCommand(cmd types.Command, entity types.Entity) (types.Entity, error) {
+	if p.client == nil {
+		return entity, fmt.Errorf("MQTT client not connected")
+	}
+
+	p.mu.RLock()
+	var ent discoveredEntity
+	found := false
+	for _, v := range p.discovered {
+		if z2mEntityID(v.UniqueID) == entity.ID {
+			ent = v
+			found = true
+			break
+		}
+	}
+	p.mu.RUnlock()
+
+	if !found || ent.CommandTopic == "" {
+		return entity, fmt.Errorf("command topic not found for entity %s", entity.ID)
+	}
+
+	lc, err := light.ParseCommand(cmd)
+	if err != nil {
+		return entity, err
+	}
+
+	var payload string
+	switch lc.Type {
+	case light.ActionTurnOn:
+		payload = ent.PayloadOn
+	case light.ActionTurnOff:
+		payload = ent.PayloadOff
+	case light.ActionSetRGB:
+		if lc.RGB == nil || len(*lc.RGB) != 3 {
+			return entity, fmt.Errorf("invalid rgb payload")
+		}
+		rgb := *lc.RGB
+		payload = fmt.Sprintf(`{"color":{"r":%v,"g":%v,"b":%v}}`, rgb[0], rgb[1], rgb[2])
+	default:
+		return entity, fmt.Errorf("unsupported command type: %s", lc.Type)
+	}
+
+	if err := p.client.Publish(ent.CommandTopic, payload); err != nil {
+		return entity, err
+	}
+
+	entity.Data.SyncStatus = "pending"
+
+	if p.eventSink != nil {
+		deviceID := entity.DeviceID
+		entityID := entity.ID
+		correlationID := cmd.ID
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			_ = p.eventSink.EmitEvent(types.InboundEvent{
+				DeviceID:      deviceID,
+				EntityID:      entityID,
+				CorrelationID: correlationID,
+				Payload:       []byte(payload),
+			})
+		}()
+	}
+
 	return entity, nil
 }
 
 func (p *PluginZigbee2mqttPlugin) OnEvent(evt types.Event, entity types.Entity) (types.Entity, error) {
+	entity.Data.Reported = evt.Payload
+	entity.Data.SyncStatus = "in_sync"
 	return entity, nil
 }
 
 func (p *PluginZigbee2mqttPlugin) handleDiscoveryMessage(topic string, payload []byte) {
+	log.Printf("plugin-zigbee2mqtt: [MQTT] received discovery on %q", topic)
 	data, entityType, err := parseDiscovery(topic, payload)
 	if err != nil {
+		log.Printf("plugin-zigbee2mqtt: [MQTT] discovery parse failed: %v", err)
 		return
 	}
 	entry := discoveredEntity{
@@ -254,10 +356,30 @@ func (p *PluginZigbee2mqttPlugin) handleDiscoveryMessage(topic string, payload [
 		PayloadOff:   payloadToString(data.PayloadOff),
 		ValueKey:     extractValueKey(data.ValueTemplate),
 	}
+	log.Printf("plugin-zigbee2mqtt: [DISCOVERY] unique_id=%q type=%s device_name=%q device_key=%q", entry.UniqueID, entry.EntityType, entry.DeviceName, entry.DeviceKey)
 
 	p.mu.Lock()
 	p.discovered[data.UniqueID] = entry
+	if p.isInitialDiscovery && p.discoveryTimer != nil {
+		p.discoveryTimer.Reset(100 * time.Millisecond)
+	}
 	p.mu.Unlock()
+
+	if p.client != nil && entry.StateTopic != "" {
+		topic := entry.StateTopic
+		go func() {
+			log.Printf("plugin-zigbee2mqtt: [STATE] subscribing to %q for entity %q", topic, entry.UniqueID)
+			_ = p.client.Subscribe(topic, func(topic string, payload []byte) {
+				if p.eventSink != nil {
+					p.eventSink.EmitEvent(types.InboundEvent{
+						DeviceID: z2mDeviceID(entry.DeviceKey),
+						EntityID: z2mEntityID(entry.UniqueID),
+						Payload:  payload,
+					})
+				}
+			})
+		}()
+	}
 }
 
 func deviceKeyFromDiscovery(data *haDiscoveryPayload) string {
@@ -300,7 +422,9 @@ func sanitizeID(s string) string {
 	}
 	out := b.String()
 	out = strings.Trim(out, "-")
-	out = strings.ReplaceAll(out, "--", "-")
+	for strings.Contains(out, "--") {
+		out = strings.ReplaceAll(out, "--", "-")
+	}
 	if out == "" {
 		return "unknown"
 	}

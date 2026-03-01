@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"os"
 	"strings"
 )
@@ -39,7 +40,7 @@ func loadZ2MConfigFromEnv() z2mConfig {
 		),
 	}
 	if cfg.DiscoveryTopic == "" {
-		cfg.DiscoveryTopic = "slidebolt/discovery/#"
+		log.Fatalf("ZIGBEE2MQTT_DISCOVERY_TOPIC is required")
 	}
 	if cfg.BaseTopic == "" {
 		cfg.BaseTopic = "zigbee2mqtt"

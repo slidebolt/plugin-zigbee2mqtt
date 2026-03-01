@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 )
@@ -26,15 +27,17 @@ type haDeviceInfo struct {
 }
 
 func parseDiscovery(topic string, payload []byte) (*haDiscoveryPayload, string, error) {
-	// homeassistant/<type>/<node_id>/<object_id>/config
+	log.Printf("plugin-zigbee2mqtt: parsing discovery on %q", topic)
+	// homeassistant/<type>/<node_id>/<object_id>/config OR homeassistant/<type>/<id>/config
 	parts := strings.Split(topic, "/")
-	if len(parts) < 5 || parts[len(parts)-1] != "config" {
+	if len(parts) < 4 || parts[len(parts)-1] != "config" {
 		return nil, "", fmt.Errorf("invalid discovery topic")
 	}
 
 	entityType := parts[1]
 	var data haDiscoveryPayload
 	if err := json.Unmarshal(payload, &data); err != nil {
+		log.Printf("plugin-zigbee2mqtt: unmarshal failed for %q: %v", topic, err)
 		return nil, "", err
 	}
 

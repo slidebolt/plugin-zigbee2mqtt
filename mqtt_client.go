@@ -22,6 +22,8 @@ func newRealMQTTClient(cfg z2mConfig) *realMQTTClient {
 	opts := mqtt.NewClientOptions().AddBroker(cfg.MQTTURL)
 	opts.SetClientID(fmt.Sprintf("plugin-zigbee2mqtt-%d", time.Now().UnixNano()))
 	opts.SetAutoReconnect(true)
+	opts.SetCleanSession(true) // Start fresh to get all retained messages immediately
+	opts.SetMessageChannelDepth(1000) // Increase buffer for initial burst of retained messages
 	if cfg.Username != "" {
 		opts.SetUsername(cfg.Username)
 		opts.SetPassword(cfg.Password)
@@ -33,6 +35,7 @@ func (c *realMQTTClient) Connect() error {
 	if token := c.client.Connect(); token.Wait() && token.Error() != nil {
 		return token.Error()
 	}
+	time.Sleep(1 * time.Second) // Give broker time to prepare initial burst
 	return nil
 }
 
