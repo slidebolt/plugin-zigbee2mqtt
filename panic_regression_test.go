@@ -8,6 +8,7 @@ import (
 )
 
 func TestNullStateThenDiscoveryDoesNotPanic(t *testing.T) {
+	t.Setenv("ZIGBEE2MQTT_DISCOVERY_TOPIC", "homeassistant/#")
 	p := NewPlugin()
 	p.OnInitialize(runner.Config{}, types.Storage{Data: []byte("null")})
 

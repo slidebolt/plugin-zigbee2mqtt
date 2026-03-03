@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,21 +11,25 @@ import (
 	"time"
 
 	"github.com/slidebolt/sdk-entities/light"
+	entityswitch "github.com/slidebolt/sdk-entities/switch"
 	runner "github.com/slidebolt/sdk-runner"
 	"github.com/slidebolt/sdk-types"
 )
 
 type discoveredEntity struct {
-	UniqueID     string `json:"unique_id"`
-	Name         string `json:"name"`
-	DeviceName   string `json:"device_name"`
-	DeviceKey    string `json:"device_key"`
-	EntityType   string `json:"entity_type"`
-	StateTopic   string `json:"state_topic"`
-	CommandTopic string `json:"command_topic"`
-	PayloadOn    string `json:"payload_on"`
-	PayloadOff   string `json:"payload_off"`
-	ValueKey     string `json:"value_key"`
+	UniqueID            string `json:"unique_id"`
+	Name                string `json:"name"`
+	DeviceName          string `json:"device_name"`
+	DeviceKey           string `json:"device_key"`
+	EntityType          string `json:"entity_type"`
+	StateTopic          string `json:"state_topic"`
+	CommandTopic        string `json:"command_topic"`
+	PayloadOn           string `json:"payload_on"`
+	PayloadOff          string `json:"payload_off"`
+	ValueKey            string `json:"value_key"`
+	SupportsBrightness  bool   `json:"supports_brightness"`
+	SupportsRGB         bool   `json:"supports_rgb"`
+	SupportsTemperature bool   `json:"supports_temperature"`
 }
 
 type PluginZigbee2mqttPlugin struct {
@@ -103,6 +108,31 @@ func (p *PluginZigbee2mqttPlugin) OnReady() {
 	}
 }
 
+func (p *PluginZigbee2mqttPlugin) WaitReady(ctx context.Context) error {
+	// If no MQTT is configured, we are as ready as we'll ever be.
+	if p.cfg.MQTTURL == "" {
+		return nil
+	}
+
+	// We consider the plugin ready when the initial discovery burst is complete
+	// (which is signaled by isInitialDiscovery becoming false).
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		p.mu.RLock()
+		isInitial := p.isInitialDiscovery
+		p.mu.RUnlock()
+		if !isInitial {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 func (p *PluginZigbee2mqttPlugin) OnShutdown() {
 	if p.client != nil {
 		p.client.Disconnect()
@@ -165,7 +195,7 @@ func (p *PluginZigbee2mqttPlugin) OnDevicesList(current []types.Device) ([]types
 			"device_key":  ent.DeviceKey,
 			"device_name": ent.DeviceName,
 		})
-		
+
 		if p.rawStore != nil {
 			_ = p.rawStore.WriteRawDevice(deviceID, cfgData)
 		}
@@ -248,6 +278,12 @@ func (p *PluginZigbee2mqttPlugin) OnEntitiesList(d string, c []types.Entity) ([]
 			Domain:    mapDomain(discovered.EntityType),
 			LocalName: name,
 		}
+		switch ent.Domain {
+		case light.Type:
+			ent.Actions = supportedActionsForDiscovered(discovered)
+		case entityswitch.Type:
+			ent.Actions = supportedActionsForDiscovered(discovered)
+		}
 
 		if existing, ok := byID[entityID]; ok {
 			ent.Data = existing.Data
@@ -265,7 +301,7 @@ func (p *PluginZigbee2mqttPlugin) OnEntitiesList(d string, c []types.Entity) ([]
 	return out, nil
 }
 
-func (p *PluginZigbee2mqttPlugin) OnCommand(cmd types.Command, entity types.Entity) (types.Entity, error) {
+func (p *PluginZigbee2mqttPlugin) OnCommandTyped(req types.CommandRequest[types.GenericPayload], entity types.Entity) (types.Entity, error) {
 	if p.client == nil {
 		return entity, fmt.Errorf("MQTT client not connected")
 	}
@@ -286,25 +322,44 @@ func (p *PluginZigbee2mqttPlugin) OnCommand(cmd types.Command, entity types.Enti
 		return entity, fmt.Errorf("command topic not found for entity %s", entity.ID)
 	}
 
-	lc, err := light.ParseCommand(cmd)
+	var payload string
+	var err error
+	switch entity.Domain {
+	case light.Type:
+		var lc light.Command
+		if err := decodeGenericPayload(req.Payload, &lc); err != nil {
+			return entity, err
+		}
+		if err := light.ValidateCommand(lc); err != nil {
+			return entity, err
+		}
+		payload, err = buildLightCommandPayload(types.CommandRequest[light.Command]{
+			CommandID: req.CommandID,
+			PluginID:  req.PluginID,
+			Device:    req.Device,
+			Entity:  entity,
+			Payload: lc,
+		}, ent)
+	case entityswitch.Type:
+		var sc entityswitch.Command
+		if err := decodeGenericPayload(req.Payload, &sc); err != nil {
+			return entity, err
+		}
+		if err := entityswitch.ValidateCommand(sc); err != nil {
+			return entity, err
+		}
+		payload, err = buildSwitchCommandPayload(types.CommandRequest[entityswitch.Command]{
+			CommandID: req.CommandID,
+			PluginID:  req.PluginID,
+			Device:    req.Device,
+			Entity:  entity,
+			Payload: sc,
+		}, ent)
+	default:
+		return entity, fmt.Errorf("unsupported domain for command routing: %s", entity.Domain)
+	}
 	if err != nil {
 		return entity, err
-	}
-
-	var payload string
-	switch lc.Type {
-	case light.ActionTurnOn:
-		payload = ent.PayloadOn
-	case light.ActionTurnOff:
-		payload = ent.PayloadOff
-	case light.ActionSetRGB:
-		if lc.RGB == nil || len(*lc.RGB) != 3 {
-			return entity, fmt.Errorf("invalid rgb payload")
-		}
-		rgb := *lc.RGB
-		payload = fmt.Sprintf(`{"color":{"r":%v,"g":%v,"b":%v}}`, rgb[0], rgb[1], rgb[2])
-	default:
-		return entity, fmt.Errorf("unsupported command type: %s", lc.Type)
 	}
 
 	if err := p.client.Publish(ent.CommandTopic, payload); err != nil {
@@ -316,14 +371,18 @@ func (p *PluginZigbee2mqttPlugin) OnCommand(cmd types.Command, entity types.Enti
 	if p.eventSink != nil {
 		deviceID := entity.DeviceID
 		entityID := entity.ID
-		correlationID := cmd.ID
+		correlationID := req.CommandID
+		optimisticPayload := []byte(payload)
+		if normalized, ok := normalizePayloadForDomain(entity.Domain, []byte(payload)); ok {
+			optimisticPayload = normalized
+		}
 		go func() {
 			time.Sleep(20 * time.Millisecond)
-			_ = p.eventSink.EmitEvent(types.InboundEvent{
+			_ = p.eventSink.EmitTypedEvent(types.InboundEventTyped[types.GenericPayload]{
 				DeviceID:      deviceID,
 				EntityID:      entityID,
 				CorrelationID: correlationID,
-				Payload:       []byte(payload),
+				Payload:       rawToGeneric(optimisticPayload),
 			})
 		}()
 	}
@@ -331,10 +390,39 @@ func (p *PluginZigbee2mqttPlugin) OnCommand(cmd types.Command, entity types.Enti
 	return entity, nil
 }
 
-func (p *PluginZigbee2mqttPlugin) OnEvent(evt types.Event, entity types.Entity) (types.Entity, error) {
-	entity.Data.Reported = evt.Payload
-	entity.Data.SyncStatus = "in_sync"
-	return entity, nil
+func (p *PluginZigbee2mqttPlugin) OnEventTyped(evt types.EventTyped[types.GenericPayload], entity types.Entity) (types.Entity, error) {
+	switch entity.Domain {
+	case light.Type:
+		store := light.Bind(&entity)
+		le := light.Event{}
+		if err := decodeGenericPayload(evt.Payload, &le); err != nil {
+			return entity, err
+		}
+		if err := light.ValidateEvent(le); err != nil {
+			return entity, err
+		}
+		if err := store.SetReportedFromEvent(le); err != nil {
+			return entity, err
+		}
+		entity.Data.SyncStatus = "in_sync"
+		return entity, nil
+	case entityswitch.Type:
+		store := entityswitch.Bind(&entity)
+		se := entityswitch.Event{}
+		if err := decodeGenericPayload(evt.Payload, &se); err != nil {
+			return entity, err
+		}
+		if err := entityswitch.ValidateEvent(se); err != nil {
+			return entity, err
+		}
+		if err := store.SetReportedFromEvent(se); err != nil {
+			return entity, err
+		}
+		entity.Data.SyncStatus = "in_sync"
+		return entity, nil
+	default:
+		return entity, fmt.Errorf("unsupported domain for event routing: %s", entity.Domain)
+	}
 }
 
 func (p *PluginZigbee2mqttPlugin) handleDiscoveryMessage(topic string, payload []byte) {
@@ -356,6 +444,7 @@ func (p *PluginZigbee2mqttPlugin) handleDiscoveryMessage(topic string, payload [
 		PayloadOff:   payloadToString(data.PayloadOff),
 		ValueKey:     extractValueKey(data.ValueTemplate),
 	}
+	entry.SupportsBrightness, entry.SupportsRGB, entry.SupportsTemperature = deriveLightCapabilities(data)
 	log.Printf("plugin-zigbee2mqtt: [DISCOVERY] unique_id=%q type=%s device_name=%q device_key=%q", entry.UniqueID, entry.EntityType, entry.DeviceName, entry.DeviceKey)
 
 	p.mu.Lock()
@@ -371,15 +460,37 @@ func (p *PluginZigbee2mqttPlugin) handleDiscoveryMessage(topic string, payload [
 			log.Printf("plugin-zigbee2mqtt: [STATE] subscribing to %q for entity %q", topic, entry.UniqueID)
 			_ = p.client.Subscribe(topic, func(topic string, payload []byte) {
 				if p.eventSink != nil {
-					p.eventSink.EmitEvent(types.InboundEvent{
+					eventPayload := payload
+					domain := mapDomain(entry.EntityType)
+					if normalized, ok := normalizePayloadForDomain(domain, payload); ok {
+						eventPayload = normalized
+					} else if domain == light.Type || domain == entityswitch.Type {
+						log.Printf("plugin-zigbee2mqtt: [STATE] dropping invalid %s payload for %q: %s", domain, entry.UniqueID, strings.TrimSpace(string(payload)))
+						return
+					}
+					p.eventSink.EmitTypedEvent(types.InboundEventTyped[types.GenericPayload]{
 						DeviceID: z2mDeviceID(entry.DeviceKey),
 						EntityID: z2mEntityID(entry.UniqueID),
-						Payload:  payload,
+						Payload:  rawToGeneric(eventPayload),
 					})
 				}
 			})
 		}()
 	}
+}
+
+func decodeGenericPayload(payload types.GenericPayload, out any) error {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, out)
+}
+
+func rawToGeneric(raw []byte) types.GenericPayload {
+	out := types.GenericPayload{}
+	_ = json.Unmarshal(raw, &out)
+	return out
 }
 
 func deviceKeyFromDiscovery(data *haDiscoveryPayload) string {

@@ -35,3 +35,14 @@ The plugin can send commands to control Zigbee devices by publishing to their MQ
 
 -   **Switches**: `turn_on`, `turn_off`
 -   **Lights**: `turn_on`, `turn_off`, `set_brightness`, `set_rgb`, `set_temperature`, etc.
+
+#### Standalone Discovery Mode
+
+This plugin supports a standalone discovery mode for rapid testing and diagnostics without requiring the full Slidebolt stack (NATS, Gateway, etc.).
+
+To run discovery and output the results to JSON:
+```bash
+./plugin-zigbee2mqtt -discover
+```
+
+**Note**: Ensure any required environment variables (e.g., API keys, URLs) are set before running.

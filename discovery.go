@@ -9,14 +9,17 @@ import (
 )
 
 type haDiscoveryPayload struct {
-	Name          string       `json:"name"`
-	UniqueID      string       `json:"unique_id"`
-	Device        haDeviceInfo `json:"device"`
-	StateTopic    string       `json:"state_topic"`
-	CommandTopic  string       `json:"command_topic"`
-	PayloadOn     interface{}  `json:"payload_on"`
-	PayloadOff    interface{}  `json:"payload_off"`
-	ValueTemplate string       `json:"value_template"`
+	Name                string       `json:"name"`
+	UniqueID            string       `json:"unique_id"`
+	Device              haDeviceInfo `json:"device"`
+	StateTopic          string       `json:"state_topic"`
+	CommandTopic        string       `json:"command_topic"`
+	PayloadOn           interface{}  `json:"payload_on"`
+	PayloadOff          interface{}  `json:"payload_off"`
+	ValueTemplate       string       `json:"value_template"`
+	Brightness          bool         `json:"brightness"`
+	ColorMode           bool         `json:"color_mode"`
+	SupportedColorModes []string     `json:"supported_color_modes"`
 }
 
 type haDeviceInfo struct {
