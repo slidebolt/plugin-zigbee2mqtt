@@ -60,7 +60,7 @@ func (p *PluginZigbee2mqttPlugin) OnInitialize(config runner.Config, state types
 	if p.discovered == nil {
 		p.discovered = make(map[string]discoveredEntity)
 	}
-	return types.Manifest{ID: "plugin-zigbee2mqtt", Name: "Plugin Zigbee2mqtt", Version: "1.0.0"}, state
+	return types.Manifest{ID: "plugin-zigbee2mqtt", Name: "Plugin Zigbee2mqtt", Version: "1.0.0", Schemas: types.CoreDomains()}, state
 }
 
 func (p *PluginZigbee2mqttPlugin) OnReady() {
@@ -213,6 +213,14 @@ func (p *PluginZigbee2mqttPlugin) OnDevicesList(current []types.Device) ([]types
 		}
 	}
 
+	// Core management device
+	coreID := types.CoreDeviceID("plugin-zigbee2mqtt")
+	byID[coreID] = runner.ReconcileDevice(byID[coreID], types.Device{
+		ID:         coreID,
+		SourceID:   coreID,
+		SourceName: "plugin-zigbee2mqtt",
+	})
+
 	out := make([]types.Device, 0, len(byID))
 	for _, dev := range byID {
 		out = append(out, dev)
@@ -249,6 +257,15 @@ func (p *PluginZigbee2mqttPlugin) OnEntitiesList(d string, c []types.Entity) ([]
 	byID := make(map[string]types.Entity, len(c))
 	for _, ent := range c {
 		byID[ent.ID] = ent
+	}
+
+	// Core entities for the management device
+	for _, need := range types.CoreEntities("plugin-zigbee2mqtt") {
+		if d == need.DeviceID {
+			if _, exists := byID[need.ID]; !exists {
+				byID[need.ID] = need
+			}
+		}
 	}
 
 	for _, discovered := range p.discovered {
@@ -301,7 +318,7 @@ func (p *PluginZigbee2mqttPlugin) OnEntitiesList(d string, c []types.Entity) ([]
 	return out, nil
 }
 
-func (p *PluginZigbee2mqttPlugin) OnCommandTyped(req types.CommandRequest[types.GenericPayload], entity types.Entity) (types.Entity, error) {
+func (p *PluginZigbee2mqttPlugin) OnCommand(req types.Command, entity types.Entity) (types.Entity, error) {
 	if p.client == nil {
 		return entity, fmt.Errorf("MQTT client not connected")
 	}
@@ -327,34 +344,22 @@ func (p *PluginZigbee2mqttPlugin) OnCommandTyped(req types.CommandRequest[types.
 	switch entity.Domain {
 	case light.Type:
 		var lc light.Command
-		if err := decodeGenericPayload(req.Payload, &lc); err != nil {
+		if err := json.Unmarshal(req.Payload, &lc); err != nil {
 			return entity, err
 		}
 		if err := light.ValidateCommand(lc); err != nil {
 			return entity, err
 		}
-		payload, err = buildLightCommandPayload(types.CommandRequest[light.Command]{
-			CommandID: req.CommandID,
-			PluginID:  req.PluginID,
-			Device:    req.Device,
-			Entity:  entity,
-			Payload: lc,
-		}, ent)
+		payload, err = buildLightCommandPayload(lc, ent)
 	case entityswitch.Type:
 		var sc entityswitch.Command
-		if err := decodeGenericPayload(req.Payload, &sc); err != nil {
+		if err := json.Unmarshal(req.Payload, &sc); err != nil {
 			return entity, err
 		}
 		if err := entityswitch.ValidateCommand(sc); err != nil {
 			return entity, err
 		}
-		payload, err = buildSwitchCommandPayload(types.CommandRequest[entityswitch.Command]{
-			CommandID: req.CommandID,
-			PluginID:  req.PluginID,
-			Device:    req.Device,
-			Entity:  entity,
-			Payload: sc,
-		}, ent)
+		payload, err = buildSwitchCommandPayload(sc, ent)
 	default:
 		return entity, fmt.Errorf("unsupported domain for command routing: %s", entity.Domain)
 	}
@@ -371,18 +376,18 @@ func (p *PluginZigbee2mqttPlugin) OnCommandTyped(req types.CommandRequest[types.
 	if p.eventSink != nil {
 		deviceID := entity.DeviceID
 		entityID := entity.ID
-		correlationID := req.CommandID
+		correlationID := req.ID
 		optimisticPayload := []byte(payload)
 		if normalized, ok := normalizePayloadForDomain(entity.Domain, []byte(payload)); ok {
 			optimisticPayload = normalized
 		}
 		go func() {
 			time.Sleep(20 * time.Millisecond)
-			_ = p.eventSink.EmitTypedEvent(types.InboundEventTyped[types.GenericPayload]{
+			_ = p.eventSink.EmitEvent(types.InboundEvent{
 				DeviceID:      deviceID,
 				EntityID:      entityID,
 				CorrelationID: correlationID,
-				Payload:       rawToGeneric(optimisticPayload),
+				Payload:       json.RawMessage(optimisticPayload),
 			})
 		}()
 	}
@@ -390,12 +395,12 @@ func (p *PluginZigbee2mqttPlugin) OnCommandTyped(req types.CommandRequest[types.
 	return entity, nil
 }
 
-func (p *PluginZigbee2mqttPlugin) OnEventTyped(evt types.EventTyped[types.GenericPayload], entity types.Entity) (types.Entity, error) {
+func (p *PluginZigbee2mqttPlugin) OnEvent(evt types.Event, entity types.Entity) (types.Entity, error) {
 	switch entity.Domain {
 	case light.Type:
 		store := light.Bind(&entity)
 		le := light.Event{}
-		if err := decodeGenericPayload(evt.Payload, &le); err != nil {
+		if err := json.Unmarshal(evt.Payload, &le); err != nil {
 			return entity, err
 		}
 		if err := light.ValidateEvent(le); err != nil {
@@ -409,7 +414,7 @@ func (p *PluginZigbee2mqttPlugin) OnEventTyped(evt types.EventTyped[types.Generi
 	case entityswitch.Type:
 		store := entityswitch.Bind(&entity)
 		se := entityswitch.Event{}
-		if err := decodeGenericPayload(evt.Payload, &se); err != nil {
+		if err := json.Unmarshal(evt.Payload, &se); err != nil {
 			return entity, err
 		}
 		if err := entityswitch.ValidateEvent(se); err != nil {
@@ -468,33 +473,18 @@ func (p *PluginZigbee2mqttPlugin) handleDiscoveryMessage(topic string, payload [
 						log.Printf("plugin-zigbee2mqtt: [STATE] dropping invalid %s payload for %q: %s", domain, entry.UniqueID, strings.TrimSpace(string(payload)))
 						return
 					}
-					p.eventSink.EmitTypedEvent(types.InboundEventTyped[types.GenericPayload]{
+					p.eventSink.EmitEvent(types.InboundEvent{
 						DeviceID: z2mDeviceID(entry.DeviceKey),
 						EntityID: z2mEntityID(entry.UniqueID),
-						Payload:  rawToGeneric(eventPayload),
+						Payload:  json.RawMessage(eventPayload),
 					})
 				}
 			})
 		}()
+		}
 	}
-}
-
-func decodeGenericPayload(payload types.GenericPayload, out any) error {
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(raw, out)
-}
-
-func rawToGeneric(raw []byte) types.GenericPayload {
-	out := types.GenericPayload{}
-	_ = json.Unmarshal(raw, &out)
-	return out
-}
-
-func deviceKeyFromDiscovery(data *haDiscoveryPayload) string {
-	if data == nil || len(data.Device.Identifiers) == 0 {
+	
+	func deviceKeyFromDiscovery(data *haDiscoveryPayload) string {	if data == nil || len(data.Device.Identifiers) == 0 {
 		return ""
 	}
 	return fmt.Sprintf("%v", data.Device.Identifiers[0])

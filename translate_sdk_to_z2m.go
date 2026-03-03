@@ -5,11 +5,9 @@ import (
 
 	"github.com/slidebolt/sdk-entities/light"
 	entityswitch "github.com/slidebolt/sdk-entities/switch"
-	"github.com/slidebolt/sdk-types"
 )
 
-func buildLightCommandPayload(req types.CommandRequest[light.Command], discovered discoveredEntity) (string, error) {
-	lc := req.Payload
+func buildLightCommandPayload(lc light.Command, discovered discoveredEntity) (string, error) {
 	switch lc.Type {
 	case light.ActionTurnOn:
 		return discovered.PayloadOn, nil
@@ -50,8 +48,7 @@ func buildLightCommandPayload(req types.CommandRequest[light.Command], discovere
 	}
 }
 
-func buildSwitchCommandPayload(req types.CommandRequest[entityswitch.Command], discovered discoveredEntity) (string, error) {
-	sc := req.Payload
+func buildSwitchCommandPayload(sc entityswitch.Command, discovered discoveredEntity) (string, error) {
 	switch sc.Type {
 	case entityswitch.ActionTurnOn:
 		return discovered.PayloadOn, nil

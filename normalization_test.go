@@ -41,15 +41,11 @@ func TestOnEventNormalizesBrightnessToSDKRange(t *testing.T) {
 	if !ok {
 		t.Fatal("failed to normalize raw z2m payload")
 	}
-	var payload types.GenericPayload
-	if err := json.Unmarshal(normalized, &payload); err != nil {
-		t.Fatalf("failed to decode normalized payload: %v", err)
-	}
-	evt := types.EventTyped[types.GenericPayload]{Payload: payload}
+	evt := types.Event{Payload: json.RawMessage(normalized)}
 
-	updated, err := p.OnEventTyped(evt, entity)
+	updated, err := p.OnEvent(evt, entity)
 	if err != nil {
-		t.Fatalf("OnEventTyped failed: %v", err)
+		t.Fatalf("OnEvent failed: %v", err)
 	}
 
 	var state light.State
@@ -73,12 +69,13 @@ func TestOnCommandRejectsOutOfRangeBrightness(t *testing.T) {
 		},
 	}
 	v := 101
-	req := types.CommandRequest[types.GenericPayload]{
-		CommandID: "cmd-1",
-		Payload: types.GenericPayload{
-			"type":       light.ActionSetBrightness,
-			"brightness": v,
-		},
+	payload, _ := json.Marshal(map[string]any{
+		"type":       light.ActionSetBrightness,
+		"brightness": v,
+	})
+	req := types.Command{
+		ID:      "cmd-1",
+		Payload: json.RawMessage(payload),
 	}
 	entity := types.Entity{
 		ID:       z2mEntityID("u1"),
@@ -86,7 +83,7 @@ func TestOnCommandRejectsOutOfRangeBrightness(t *testing.T) {
 		Domain:   light.Type,
 	}
 
-	_, err := p.OnCommandTyped(req, entity)
+	_, err := p.OnCommand(req, entity)
 	if err == nil {
 		t.Fatal("expected error for brightness > 100")
 	}
@@ -110,12 +107,13 @@ func TestOnCommandRejectsUnsupportedLightAction(t *testing.T) {
 		},
 	}
 	v := 55
-	req := types.CommandRequest[types.GenericPayload]{
-		CommandID: "cmd-1",
-		Payload: types.GenericPayload{
-			"type":       light.ActionSetBrightness,
-			"brightness": v,
-		},
+	payload, _ := json.Marshal(map[string]any{
+		"type":       light.ActionSetBrightness,
+		"brightness": v,
+	})
+	req := types.Command{
+		ID:      "cmd-1",
+		Payload: json.RawMessage(payload),
 	}
 	entity := types.Entity{
 		ID:       z2mEntityID("u1"),
@@ -123,7 +121,7 @@ func TestOnCommandRejectsUnsupportedLightAction(t *testing.T) {
 		Domain:   light.Type,
 	}
 
-	_, err := p.OnCommandTyped(req, entity)
+	_, err := p.OnCommand(req, entity)
 	if err == nil {
 		t.Fatal("expected unsupported action error")
 	}
