@@ -6,7 +6,7 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/slidebolt/sdk-entities v1.4.1
 	github.com/slidebolt/sdk-runner v1.6.1
-	github.com/slidebolt/sdk-types v1.5.3
+	github.com/slidebolt/sdk-types v1.5.4
 )
 
 require (
