@@ -24,17 +24,17 @@ func TestLoadZ2MConfigFromEnvCanonical(t *testing.T) {
 	}
 }
 
-func TestLoadZ2MConfigFromEnvLegacyFallback(t *testing.T) {
-	t.Setenv("MQTT_URL", "tcp://legacy:1883")
-	t.Setenv("MQTT_DISCOVERY_TOPIC", "homeassistant/#")
+func TestLoadZ2MConfigFromEnvAltNames(t *testing.T) {
+	t.Setenv("Z2M_MQTT_BROKER_URL", "tcp://alt:1883")
+	t.Setenv("Z2M_DISCOVERY_TOPIC", "homeassistant/#")
 	t.Setenv("Z2M_BASE_TOPIC", "z2m")
 
 	cfg := loadZ2MConfigFromEnv()
-	if cfg.MQTTURL != "tcp://legacy:1883" {
-		t.Fatalf("expected legacy MQTT_URL fallback, got %q", cfg.MQTTURL)
+	if cfg.MQTTURL != "tcp://alt:1883" {
+		t.Fatalf("expected Z2M_MQTT_BROKER_URL fallback, got %q", cfg.MQTTURL)
 	}
 	if cfg.DiscoveryTopic != "homeassistant/#" {
-		t.Fatalf("expected legacy discovery fallback, got %q", cfg.DiscoveryTopic)
+		t.Fatalf("expected Z2M_DISCOVERY_TOPIC fallback, got %q", cfg.DiscoveryTopic)
 	}
 	if cfg.BaseTopic != "z2m" {
 		t.Fatalf("expected Z2M_BASE_TOPIC fallback, got %q", cfg.BaseTopic)

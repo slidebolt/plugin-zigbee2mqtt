@@ -371,7 +371,7 @@ func (p *PluginZigbee2mqttPlugin) OnCommand(req types.Command, entity types.Enti
 		return entity, err
 	}
 
-	entity.Data.SyncStatus = "pending"
+	entity.Data.SyncStatus = types.SyncStatusPending
 
 	if p.eventSink != nil {
 		deviceID := entity.DeviceID
@@ -409,7 +409,7 @@ func (p *PluginZigbee2mqttPlugin) OnEvent(evt types.Event, entity types.Entity) 
 		if err := store.SetReportedFromEvent(le); err != nil {
 			return entity, err
 		}
-		entity.Data.SyncStatus = "in_sync"
+		entity.Data.SyncStatus = types.SyncStatusSynced
 		return entity, nil
 	case entityswitch.Type:
 		store := entityswitch.Bind(&entity)
@@ -423,7 +423,7 @@ func (p *PluginZigbee2mqttPlugin) OnEvent(evt types.Event, entity types.Entity) 
 		if err := store.SetReportedFromEvent(se); err != nil {
 			return entity, err
 		}
-		entity.Data.SyncStatus = "in_sync"
+		entity.Data.SyncStatus = types.SyncStatusSynced
 		return entity, nil
 	default:
 		return entity, fmt.Errorf("unsupported domain for event routing: %s", entity.Domain)
@@ -465,26 +465,25 @@ func (p *PluginZigbee2mqttPlugin) handleDiscoveryMessage(topic string, payload [
 			log.Printf("plugin-zigbee2mqtt: [STATE] subscribing to %q for entity %q", topic, entry.UniqueID)
 			_ = p.client.Subscribe(topic, func(topic string, payload []byte) {
 				if p.eventSink != nil {
-					eventPayload := payload
 					domain := mapDomain(entry.EntityType)
-					if normalized, ok := normalizePayloadForDomain(domain, payload); ok {
-						eventPayload = normalized
-					} else if domain == light.Type || domain == entityswitch.Type {
+					normalized, ok := normalizePayloadForDomain(domain, payload)
+					if !ok {
 						log.Printf("plugin-zigbee2mqtt: [STATE] dropping invalid %s payload for %q: %s", domain, entry.UniqueID, strings.TrimSpace(string(payload)))
 						return
 					}
 					p.eventSink.EmitEvent(types.InboundEvent{
 						DeviceID: z2mDeviceID(entry.DeviceKey),
 						EntityID: z2mEntityID(entry.UniqueID),
-						Payload:  json.RawMessage(eventPayload),
+						Payload:  json.RawMessage(normalized),
 					})
 				}
 			})
 		}()
-		}
 	}
-	
-	func deviceKeyFromDiscovery(data *haDiscoveryPayload) string {	if data == nil || len(data.Device.Identifiers) == 0 {
+}
+
+func deviceKeyFromDiscovery(data *haDiscoveryPayload) string {
+	if data == nil || len(data.Device.Identifiers) == 0 {
 		return ""
 	}
 	return fmt.Sprintf("%v", data.Device.Identifiers[0])

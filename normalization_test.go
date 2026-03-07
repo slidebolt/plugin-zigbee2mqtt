@@ -132,3 +132,54 @@ func TestOnCommandRejectsUnsupportedLightAction(t *testing.T) {
 		t.Fatal("unsupported command should not be published")
 	}
 }
+
+func TestNormalizeBinarySensorPayloadToEventPayload(t *testing.T) {
+	got, ok := normalizePayloadForDomain("binary_sensor", []byte(`{"state":true}`))
+	if !ok {
+		t.Fatal("expected binary_sensor payload to normalize")
+	}
+	var out map[string]any
+	if err := json.Unmarshal(got, &out); err != nil {
+		t.Fatalf("unmarshal normalized payload failed: %v", err)
+	}
+	if out["type"] != "active" {
+		t.Fatalf("type=%v want=active", out["type"])
+	}
+	if out["state"] != true {
+		t.Fatalf("state=%v want=true", out["state"])
+	}
+}
+
+func TestNormalizeSensorPayloadToEventPayload(t *testing.T) {
+	got, ok := normalizePayloadForDomain("sensor", []byte(`{"value":23.5}`))
+	if !ok {
+		t.Fatal("expected sensor payload to normalize")
+	}
+	var out map[string]any
+	if err := json.Unmarshal(got, &out); err != nil {
+		t.Fatalf("unmarshal normalized payload failed: %v", err)
+	}
+	if out["type"] != "value_changed" {
+		t.Fatalf("type=%v want=value_changed", out["type"])
+	}
+	if out["value"] != 23.5 {
+		t.Fatalf("value=%v want=23.5", out["value"])
+	}
+}
+
+func TestNormalizeCoverPayloadToEventPayload(t *testing.T) {
+	got, ok := normalizePayloadForDomain("cover", []byte(`{"position":42}`))
+	if !ok {
+		t.Fatal("expected cover payload to normalize")
+	}
+	var out map[string]any
+	if err := json.Unmarshal(got, &out); err != nil {
+		t.Fatalf("unmarshal normalized payload failed: %v", err)
+	}
+	if out["type"] != "state_changed" {
+		t.Fatalf("type=%v want=state_changed", out["type"])
+	}
+	if out["position"] != float64(42) {
+		t.Fatalf("position=%v want=42", out["position"])
+	}
+}

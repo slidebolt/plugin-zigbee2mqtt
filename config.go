@@ -19,12 +19,10 @@ func loadZ2MConfigFromEnv() z2mConfig {
 		MQTTURL: strings.TrimSpace(firstNonEmpty(
 			"ZIGBEE2MQTT_MQTT_URL",
 			"Z2M_MQTT_BROKER_URL",
-			"MQTT_URL",
 		)),
 		DiscoveryTopic: strings.TrimSpace(firstNonEmpty(
 			"ZIGBEE2MQTT_DISCOVERY_TOPIC",
 			"Z2M_DISCOVERY_TOPIC",
-			"MQTT_DISCOVERY_TOPIC",
 		)),
 		BaseTopic: strings.TrimSpace(firstNonEmpty(
 			"ZIGBEE2MQTT_BASE_TOPIC",

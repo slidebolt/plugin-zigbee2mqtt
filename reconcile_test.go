@@ -40,13 +40,20 @@ func TestPluginDiscoveryWall(t *testing.T) {
 		t.Fatalf("OnDevicesList failed: %v", err)
 	}
 
-	if len(results) != 1 {
-		t.Fatalf("Expected 1 device, got %d", len(results))
+	if len(results) != 2 {
+		t.Fatalf("Expected 2 devices (including core management device), got %d", len(results))
 	}
 
-	finalDevice := results[0]
+	// Find the actual device (not the core management device)
+	var finalDevice types.Device
+	for _, dev := range results {
+		if dev.ID == deviceID {
+			finalDevice = dev
+			break
+		}
+	}
 	t.Logf("Final Device: %+v", finalDevice)
-	
+
 	// VERIFY THE WALL
 
 	// A. Hardware won the SourceName
@@ -67,7 +74,7 @@ func TestPluginDiscoveryWall(t *testing.T) {
 
 func TestPluginGhostDevices(t *testing.T) {
 	plugin := NewPlugin()
-	
+
 	// Simulate an existing device on disk that is NOT in the active discovery map
 	// (e.g. it was unplugged)
 	existingDevice := types.Device{
@@ -76,19 +83,31 @@ func TestPluginGhostDevices(t *testing.T) {
 		SourceName: "Unplugged Lamp",
 		LocalName:  "My Lamp",
 	}
-	
+
 	results, err := plugin.OnDevicesList([]types.Device{existingDevice})
 	if err != nil {
 		t.Fatalf("OnDevicesList failed: %v", err)
 	}
-	
+
 	// The device should STILL be in the list, even though it's not in plugin.discovered.
 	// This prevents the "dropped off the list" bug.
-	if len(results) != 1 {
-		t.Fatalf("Expected 1 device (ghost/offline), got %d", len(results))
+	// Note: There will be 2 devices (the ghost device + core management device)
+	if len(results) != 2 {
+		t.Fatalf("Expected 2 devices (ghost/offline + core management), got %d", len(results))
 	}
-	
-	if results[0].ID != "z2m-device-offline-001" {
+
+	// Find the ghost device
+	var ghostDevice *types.Device
+	for i := range results {
+		if results[i].ID == "z2m-device-offline-001" {
+			ghostDevice = &results[i]
+			break
+		}
+	}
+
+	if ghostDevice == nil {
+		t.Errorf("Lost the offline device")
+	} else if ghostDevice.ID != "z2m-device-offline-001" {
 		t.Errorf("Lost the offline device")
 	}
 }

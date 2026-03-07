@@ -16,6 +16,12 @@ func normalizePayloadForDomain(domain string, payload []byte) ([]byte, bool) {
 		return normalizeLightPayloadToEventPayload(payload)
 	case entityswitch.Type:
 		return normalizeSwitchPayloadToEventPayload(payload)
+	case "binary_sensor":
+		return normalizeBinarySensorPayloadToEventPayload(payload)
+	case "sensor":
+		return normalizeSensorPayloadToEventPayload(payload)
+	case "cover":
+		return normalizeCoverPayloadToEventPayload(payload)
 	default:
 		return nil, false
 	}
@@ -195,6 +201,80 @@ func normalizeSwitchPayloadToEventPayload(payload []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return out, true
+}
+
+func normalizeBinarySensorPayloadToEventPayload(payload []byte) ([]byte, bool) {
+	raw := strings.TrimSpace(string(payload))
+	if raw == "" {
+		return nil, false
+	}
+	if strings.EqualFold(raw, "ON") {
+		b, _ := json.Marshal(map[string]any{"type": "active", "state": true})
+		return b, true
+	}
+	if strings.EqualFold(raw, "OFF") {
+		b, _ := json.Marshal(map[string]any{"type": "inactive", "state": false})
+		return b, true
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return nil, false
+	}
+	if v, ok := m["state"].(bool); ok {
+		m["type"] = "inactive"
+		if v {
+			m["type"] = "active"
+		}
+		out, err := json.Marshal(m)
+		return out, err == nil
+	}
+	if v, ok := m["state"].(string); ok {
+		active := strings.EqualFold(v, "ON") || strings.EqualFold(v, "true") || strings.EqualFold(v, "active")
+		m["state"] = active
+		m["type"] = "inactive"
+		if active {
+			m["type"] = "active"
+		}
+		out, err := json.Marshal(m)
+		return out, err == nil
+	}
+	return nil, false
+}
+
+func normalizeSensorPayloadToEventPayload(payload []byte) ([]byte, bool) {
+	raw := strings.TrimSpace(string(payload))
+	if raw == "" {
+		return nil, false
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err == nil {
+		m["type"] = "value_changed"
+		out, err := json.Marshal(m)
+		return out, err == nil
+	}
+
+	if f, ok := toFloat64(raw); ok {
+		b, _ := json.Marshal(map[string]any{"type": "value_changed", "value": f})
+		return b, true
+	}
+	return nil, false
+}
+
+func normalizeCoverPayloadToEventPayload(payload []byte) ([]byte, bool) {
+	raw := strings.TrimSpace(string(payload))
+	if raw == "" {
+		return nil, false
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err == nil {
+		m["type"] = "state_changed"
+		out, err := json.Marshal(m)
+		return out, err == nil
+	}
+	return nil, false
 }
 
 func applySwitchStateFromZ2MPayload(store entityswitch.Store, payload []byte) error {
