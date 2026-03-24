@@ -12,7 +12,7 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	domain "github.com/slidebolt/sb-domain"
-	managersdk "github.com/slidebolt/sb-manager-sdk"
+	testkit "github.com/slidebolt/sb-testkit"
 	messenger "github.com/slidebolt/sb-messenger-sdk"
 	storage "github.com/slidebolt/sb-storage-sdk"
 )
@@ -82,10 +82,10 @@ func connectToMQTT(t *testing.T, broker string) mqtt.Client {
 }
 
 // setupTestEnv creates a test environment with messenger and storage
-func setupTestEnv(t *testing.T) (*managersdk.TestEnv, storage.Storage) {
+func setupTestEnv(t *testing.T) (*testkit.TestEnv, storage.Storage) {
 	t.Helper()
 
-	env := managersdk.NewTestEnv(t)
+	env := testkit.NewTestEnv(t)
 	env.Start("messenger")
 	env.Start("storage")
 

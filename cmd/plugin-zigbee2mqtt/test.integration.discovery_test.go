@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	managersdk "github.com/slidebolt/sb-manager-sdk"
+	testkit "github.com/slidebolt/sb-testkit"
 	storage "github.com/slidebolt/sb-storage-sdk"
 )
 
@@ -25,7 +25,7 @@ func TestDiscovery_PrintAllDevices(t *testing.T) {
 	}
 	t.Logf("MQTT broker: %s", broker)
 
-	env := managersdk.NewTestEnv(t)
+	env := testkit.NewTestEnv(t)
 	env.Start("messenger")
 	env.Start("storage")
 

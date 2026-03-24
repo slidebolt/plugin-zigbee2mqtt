@@ -10,7 +10,7 @@ import (
 	"time"
 
 	domain "github.com/slidebolt/sb-domain"
-	managersdk "github.com/slidebolt/sb-manager-sdk"
+	testkit "github.com/slidebolt/sb-testkit"
 	messenger "github.com/slidebolt/sb-messenger-sdk"
 	storageserver "github.com/slidebolt/sb-storage-server"
 	storage "github.com/slidebolt/sb-storage-sdk"
@@ -32,7 +32,7 @@ func TestThroughput_CommandPipeline(t *testing.T) {
 	)
 
 	// --- setup env ---
-	env := managersdk.NewTestEnv(t)
+	env := testkit.NewTestEnv(t)
 	env.Start("messenger")
 	env.Start("storage")
 	store := env.Storage()
@@ -139,7 +139,7 @@ func TestThroughput_WithMQTT(t *testing.T) {
 
 	broker := skipIfNoBroker(t)
 
-	env := managersdk.NewTestEnv(t)
+	env := testkit.NewTestEnv(t)
 	env.Start("messenger")
 	env.Start("storage")
 	store := env.Storage()
@@ -236,7 +236,7 @@ func TestThroughput_ViaNATS(t *testing.T) {
 		entityID = "light"
 	)
 
-	env := managersdk.NewTestEnv(t)
+	env := testkit.NewTestEnv(t)
 	env.Start("messenger")
 	env.Start("storage")
 	store := env.Storage()
@@ -346,7 +346,7 @@ func TestThroughput_ScriptBacklog(t *testing.T) {
 		scriptDuration  = 3 * time.Second        // how long script "runs"
 	)
 
-	env := managersdk.NewTestEnv(t)
+	env := testkit.NewTestEnv(t)
 	env.Start("messenger")
 	env.Start("storage")
 	store := env.Storage()
@@ -469,7 +469,7 @@ scriptDuration = 3 * time.Second
 )
 
 // Start messenger only — we'll wire storage manually with a real dataDir.
-env := managersdk.NewTestEnv(t)
+env := testkit.NewTestEnv(t)
 env.Start("messenger")
 msg := env.Messenger()
 
