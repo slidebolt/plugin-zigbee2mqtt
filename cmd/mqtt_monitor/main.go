@@ -15,7 +15,7 @@ import (
 func main() {
 	broker := os.Getenv("TEST_MQTT_BROKER")
 	if broker == "" {
-		broker = "tcp://localhost:1883"
+		log.Fatal("TEST_MQTT_BROKER is required")
 	}
 
 	fmt.Printf("Connecting to MQTT broker: %s\n", broker)

@@ -51,7 +51,7 @@ func Encode(cmd any, internal json.RawMessage) (json.RawMessage, error) {
 // MQTTConfig holds MQTT broker configuration
 // Can be set via environment variables:
 //
-//	Z2M_MQTT_BROKER - MQTT broker URL (default: tcp://localhost:1883)
+//	Z2M_MQTT_BROKER - MQTT broker URL
 //	Z2M_MQTT_USERNAME - MQTT username (optional)
 //	Z2M_MQTT_PASSWORD - MQTT password (optional)
 //	Z2M_DISCOVERY_PREFIX - HA discovery prefix (default: homeassistant)
@@ -67,7 +67,7 @@ type MQTTConfig struct {
 
 func loadMQTTConfig() MQTTConfig {
 	cfg := MQTTConfig{
-		Broker:          getEnv("Z2M_MQTT_BROKER", "tcp://localhost:1883"),
+		Broker:          getEnv("Z2M_MQTT_BROKER", ""),
 		Username:        getEnv("Z2M_MQTT_USERNAME", ""),
 		Password:        getEnv("Z2M_MQTT_PASSWORD", ""),
 		DiscoveryPrefix: getEnv("Z2M_DISCOVERY_PREFIX", "homeassistant"),
@@ -174,6 +174,10 @@ func (p *plugin) OnStart(deps map[string]json.RawMessage) (json.RawMessage, erro
 
 // connectMQTT establishes connection to MQTT broker and subscribes to topics
 func (p *plugin) connectMQTT() error {
+	if strings.TrimSpace(p.mqttCfg.Broker) == "" {
+		return fmt.Errorf("Z2M_MQTT_BROKER is not set")
+	}
+
 	opts := mqtt.NewClientOptions().
 		AddBroker(p.mqttCfg.Broker).
 		SetClientID(p.mqttCfg.ClientID).
