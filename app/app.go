@@ -477,7 +477,7 @@ func appendUniqueKey(keys []domain.EntityKey, key domain.EntityKey) []domain.Ent
 func (p *plugin) getCommandsForType(entityType string) []string {
 	switch entityType {
 	case "light":
-		return []string{"light_turn_on", "light_turn_off", "light_set_brightness", "light_set_color_temp", "light_set_rgb", "light_set_effect"}
+		return []string{"light_turn_on", "light_turn_off", "light_set_brightness", "light_set_color_temp", "light_set_rgb", "light_set_hs", "light_set_effect"}
 	case "switch":
 		return []string{"switch_turn_on", "switch_turn_off", "switch_toggle"}
 	case "cover":
