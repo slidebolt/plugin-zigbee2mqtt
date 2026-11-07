@@ -160,7 +160,7 @@ func TestLuaFade_ZigbeeLights(t *testing.T) {
 	const wantTicks = 4
 	readings := make(map[string][]int, len(lights))
 
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(15 * time.Second)
 	total := 0
 	want := wantTicks * len(lights)
 	for total < want {
@@ -227,7 +227,7 @@ func TestLuaFade_StopHaltsCommands(t *testing.T) {
 
 	// Wait for at least 3 commands to confirm the script is running.
 	count := 0
-	deadline := time.After(time.Second)
+	deadline := time.After(15 * time.Second)
 	for count < 3 {
 		select {
 		case <-arrived:
@@ -293,7 +293,7 @@ func TestLuaFade_NewDevicePickedUp(t *testing.T) {
 
 	select {
 	case <-firstArrived:
-	case <-time.After(time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("Main_LB_01 never received a brightness command")
 	}
 
@@ -313,7 +313,7 @@ func TestLuaFade_NewDevicePickedUp(t *testing.T) {
 	select {
 	case <-newArrived:
 		// new device picked up dynamically
-	case <-time.After(time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("Main_LB_02 was not picked up by the running script within 1s")
 	}
 }

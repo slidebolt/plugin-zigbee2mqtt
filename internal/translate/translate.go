@@ -94,8 +94,9 @@ type DiscoveryPayload struct {
 	// Text
 	Pattern string `json:"pattern"`
 	Mode    string `json:"mode"`
-	TextMin int    `json:"min"`
-	TextMax int    `json:"max"`
+	// Text entities send their length limits as "min" and "max", decoded into Min and Max.
+	TextMin int `json:"-"`
+	TextMax int `json:"-"`
 
 	// Fan
 	PercentageCommandTopic string `json:"percentage_command_topic"`
@@ -149,13 +150,10 @@ func (d *DiscoveryPayload) UnmarshalJSON(data []byte) error {
 		MinTempShort                float64         `json:"min_temp"`
 		MaxTempShort                float64         `json:"max_temp"`
 		TempStepShort               float64         `json:"temp_step"`
-		PrecisionShort              float64         `json:"temp_step"`
 		TemperatureUnitShort        string          `json:"temp_unit"`
 		OptionsShort                []string        `json:"ops"`
 		PatternShort                string          `json:"pattern"`
 		ModeShort                   string          `json:"mode"`
-		TextMinShort                int             `json:"min"`
-		TextMaxShort                int             `json:"max"`
 		PercentageCommandTopicShort string          `json:"pct_cmd_t"`
 		SpeedRangeMinShort          int             `json:"spd_rng_min"`
 		SpeedRangeMaxShort          int             `json:"spd_rng_max"`
@@ -228,13 +226,12 @@ func (d *DiscoveryPayload) UnmarshalJSON(data []byte) error {
 	applyFloat(&d.MinTemp, aux.MinTempShort)
 	applyFloat(&d.MaxTemp, aux.MaxTempShort)
 	applyFloat(&d.TempStep, aux.TempStepShort)
-	applyFloat(&d.Precision, aux.PrecisionShort)
 	applyString(&d.TemperatureUnit, aux.TemperatureUnitShort)
 	applyStrings(&d.Options, aux.OptionsShort)
 	applyString(&d.Pattern, aux.PatternShort)
 	applyString(&d.Mode, aux.ModeShort)
-	applyInt(&d.TextMin, aux.TextMinShort)
-	applyInt(&d.TextMax, aux.TextMaxShort)
+	d.TextMin = int(d.Min)
+	d.TextMax = int(d.Max)
 	applyString(&d.PercentageCommandTopic, aux.PercentageCommandTopicShort)
 	applyInt(&d.SpeedRangeMin, aux.SpeedRangeMinShort)
 	applyInt(&d.SpeedRangeMax, aux.SpeedRangeMaxShort)
