@@ -6,14 +6,14 @@ require (
 	github.com/cucumber/godog v0.15.1
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/slidebolt/sb-contract v1.0.6
-	github.com/slidebolt/sb-domain v1.0.13
+	github.com/slidebolt/sb-domain v1.0.14
 	github.com/slidebolt/sb-messenger-sdk v1.0.7
 	github.com/slidebolt/sb-runtime v1.0.6
-	github.com/slidebolt/sb-script v1.0.9
+	github.com/slidebolt/sb-script v1.0.11
 	github.com/slidebolt/sb-storage-sdk v1.0.7
-	github.com/slidebolt/sb-storage-server v1.0.9
-	github.com/slidebolt/sb-testkit v1.0.9
-	github.com/slidebolt/sb-virtual v1.0.9
+	github.com/slidebolt/sb-storage-server v1.0.10
+	github.com/slidebolt/sb-testkit v1.0.11
+	github.com/slidebolt/sb-virtual v1.0.11
 )
 
 require (
