@@ -20,6 +20,9 @@ func TestHelloManifest(t *testing.T) {
 	if got.Setup.Mode != "selectable" || len(got.Setup.Fields) != 6 {
 		t.Fatalf("Hello().Setup = %#v", got.Setup)
 	}
+	if len(got.Setup.Resources) != 1 || got.Setup.Resources[0].ID != "zigbee2mqtt-bridge" {
+		t.Fatalf("Hello().Setup.Resources = %#v", got.Setup.Resources)
+	}
 	if got.Setup.Fields[0].Environment != "Z2M_MQTT_BROKER" || got.Setup.Fields[5].Generate != "uuid" {
 		t.Fatalf("Hello().Setup.Fields = %#v", got.Setup.Fields)
 	}

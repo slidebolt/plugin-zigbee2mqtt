@@ -25,11 +25,13 @@ import (
 	contract "github.com/slidebolt/sb-contract"
 	domain "github.com/slidebolt/sb-domain"
 	messenger "github.com/slidebolt/sb-messenger-sdk"
+	runtime "github.com/slidebolt/sb-runtime"
 	storage "github.com/slidebolt/sb-storage-sdk"
 )
 
 const pluginID = "plugin-zigbee2mqtt"
 const PluginID = pluginID
+const bridgeResource = "zigbee2mqtt-bridge"
 
 type DiscoveryPayload = translate.DiscoveryPayload
 type App = plugin
@@ -104,12 +106,14 @@ type EntityTopicInfo struct {
 // ---------------------------------------------------------------------------
 
 type plugin struct {
-	msg     messenger.Messenger
-	store   storage.Storage
-	cmds    *messenger.Commands
-	subs    []messenger.Subscription
-	mqtt    mqtt.Client
-	mqttCfg MQTTConfig
+	msg         messenger.Messenger
+	store       storage.Storage
+	cmds        *messenger.Commands
+	subs        []messenger.Subscription
+	mqtt        mqtt.Client
+	mqttCfg     MQTTConfig
+	reporter    runtime.ResourceReporter
+	bridgeState chan bool
 
 	// stateTopicIndex maps MQTT state topics (e.g. "zigbee2mqtt/Main_LB_01")
 	// to the entity keys that share that topic. Built during discovery.
@@ -118,32 +122,40 @@ type plugin struct {
 }
 
 func (p *plugin) Hello() contract.HelloResponse {
+	setup := &contract.SetupDefinition{
+		Mode:     contract.SetupSelectable,
+		Category: "Devices",
+		Fields: []contract.SetupField{
+			{Key: "broker", Environment: "Z2M_MQTT_BROKER", Name: "MQTT broker URL", Description: "MQTT broker URL used by Zigbee2MQTT.", Control: contract.SetupText, Format: "uri", Required: true},
+			{Key: "username", Environment: "Z2M_MQTT_USERNAME", Name: "MQTT username", Description: "Optional MQTT broker username.", Control: contract.SetupText},
+			{Key: "password", Environment: "Z2M_MQTT_PASSWORD", Name: "MQTT password", Description: "Optional MQTT broker password.", Control: contract.SetupSecret, Sensitive: true},
+			{Key: "discovery_prefix", Environment: "Z2M_DISCOVERY_PREFIX", Name: "Discovery prefix", Description: "Home Assistant discovery prefix published by Zigbee2MQTT.", Control: contract.SetupText, Advanced: true, Default: json.RawMessage(`"homeassistant"`)},
+			{Key: "base_topic", Environment: "Z2M_BASE_TOPIC", Name: "Base topic", Description: "Zigbee2MQTT base topic.", Control: contract.SetupText, Advanced: true, Default: json.RawMessage(`"zigbee2mqtt"`)},
+			{Key: "client_id", Environment: "Z2M_CLIENT_ID", Name: "MQTT client ID", Description: "Stable unique MQTT client identifier for this installation.", Control: contract.SetupText, Required: true, Generate: "uuid"},
+		},
+		Constraints: []contract.SetupConstraint{{Kind: "all_or_none", Fields: []string{"username", "password"}}},
+		Resources: []contract.ExternalResourceDefinition{{
+			ID: bridgeResource, Kind: contract.ExternalResourceService, Name: "Zigbee2MQTT bridge", Description: "Publishes Zigbee device discovery and state through its MQTT broker.",
+			Fields: []string{"broker", "username", "password", "base_topic"}, Activation: contract.ResourceActivation{Mode: contract.ResourceActivationAlways},
+		}},
+	}
 	return contract.HelloResponse{
 		ID:              pluginID,
 		Kind:            contract.KindPlugin,
 		ContractVersion: contract.ContractVersion,
 		DependsOn:       []string{"messenger", "storage"},
 		Definitions:     contract.DescribePlugin("Zigbee2MQTT", "Connects to an existing Zigbee2MQTT deployment and translates its discovery and state topics into shared entities.", "binary_sensor", "button", "climate", "cover", "light", "lock", "number", "select", "sensor", "switch"),
-		Setup: &contract.SetupDefinition{
-			Mode:     contract.SetupSelectable,
-			Category: "Devices",
-			Fields: []contract.SetupField{
-				{Key: "broker", Environment: "Z2M_MQTT_BROKER", Name: "MQTT broker URL", Description: "MQTT broker URL used by Zigbee2MQTT.", Control: contract.SetupText, Format: "uri", Required: true},
-				{Key: "username", Environment: "Z2M_MQTT_USERNAME", Name: "MQTT username", Description: "Optional MQTT broker username.", Control: contract.SetupText},
-				{Key: "password", Environment: "Z2M_MQTT_PASSWORD", Name: "MQTT password", Description: "Optional MQTT broker password.", Control: contract.SetupSecret, Sensitive: true},
-				{Key: "discovery_prefix", Environment: "Z2M_DISCOVERY_PREFIX", Name: "Discovery prefix", Description: "Home Assistant discovery prefix published by Zigbee2MQTT.", Control: contract.SetupText, Advanced: true, Default: json.RawMessage(`"homeassistant"`)},
-				{Key: "base_topic", Environment: "Z2M_BASE_TOPIC", Name: "Base topic", Description: "Zigbee2MQTT base topic.", Control: contract.SetupText, Advanced: true, Default: json.RawMessage(`"zigbee2mqtt"`)},
-				{Key: "client_id", Environment: "Z2M_CLIENT_ID", Name: "MQTT client ID", Description: "Stable unique MQTT client identifier for this installation.", Control: contract.SetupText, Required: true, Generate: "uuid"},
-			},
-			Constraints: []contract.SetupConstraint{{Kind: "all_or_none", Fields: []string{"username", "password"}}},
-		},
+		Setup:           setup,
 	}
 }
+
+func (p *plugin) SetResourceReporter(reporter runtime.ResourceReporter) { p.reporter = reporter }
 
 func (p *plugin) OnStart(deps map[string]json.RawMessage) (json.RawMessage, error) {
 	// Load MQTT configuration
 	p.mqttCfg = loadMQTTConfig()
 	p.stateTopicIndex = make(map[string][]domain.EntityKey)
+	p.bridgeState = make(chan bool, 1)
 
 	// Connect to Messenger SDK
 	msg, err := messenger.Connect(deps)
@@ -169,18 +181,12 @@ func (p *plugin) OnStart(deps map[string]json.RawMessage) (json.RawMessage, erro
 
 	// Connect to MQTT broker
 	if err := p.connectMQTT(); err != nil {
-		log.Printf("plugin-zigbee2mqtt: MQTT connection failed: %v", err)
-		log.Println("plugin-zigbee2mqtt: continuing without MQTT - set Z2M_MQTT_BROKER to enable")
-	} else {
-		log.Println("plugin-zigbee2mqtt: MQTT connected successfully")
+		p.resourceDegraded("bridge_unavailable", err)
+		store.Close()
+		msg.Close()
+		return nil, err
 	}
-
-	// Seed demo device (only if MQTT is not connected - real devices will come from Z2M)
-	if p.mqtt == nil || !p.mqtt.IsConnected() {
-		if err := p.seedDemo(); err != nil {
-			return nil, fmt.Errorf("seed demo: %w", err)
-		}
-	}
+	log.Println("plugin-zigbee2mqtt: MQTT connected successfully")
 
 	log.Println("plugin-zigbee2mqtt: started")
 	return nil, nil
@@ -210,12 +216,21 @@ func (p *plugin) connectMQTT() error {
 
 	// Connect with timeout
 	token := p.mqtt.Connect()
-	token.WaitTimeout(10 * time.Second)
+	if !token.WaitTimeout(10 * time.Second) {
+		return fmt.Errorf("MQTT connect timed out")
+	}
 	if token.Error() != nil {
 		return fmt.Errorf("MQTT connect: %w", token.Error())
 	}
-
-	return nil
+	select {
+	case online := <-p.bridgeState:
+		if !online {
+			return fmt.Errorf("Zigbee2MQTT bridge is offline")
+		}
+		return nil
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("timed out waiting for Zigbee2MQTT bridge state")
+	}
 }
 
 func parseDiscoveryTopic(topic string) (entityType, deviceID, entityID string, ok bool) {
@@ -298,6 +313,7 @@ func (p *plugin) onMQTTConnect(client mqtt.Client) {
 func (p *plugin) onMQTTDisconnect(client mqtt.Client, err error) {
 	log.Printf("plugin-zigbee2mqtt: MQTT disconnected: %v", err)
 	log.Println("plugin-zigbee2mqtt: will auto-reconnect...")
+	p.resourceDegraded("mqtt_disconnected", err)
 }
 
 // handleDiscoveryMessage processes HA discovery messages
@@ -403,6 +419,10 @@ func (p *plugin) handleDiscoveryMessage(client mqtt.Client, msg mqtt.Message) {
 func (p *plugin) handleStateMessage(client mqtt.Client, msg mqtt.Message) {
 	topic := msg.Topic()
 	payload := msg.Payload()
+	if topic == p.mqttCfg.BaseTopic+"/bridge/state" {
+		p.handleBridgeState(payload)
+		return
+	}
 
 	// Skip bridge system messages (not device state updates)
 	if strings.Contains(topic, "/bridge/") {
@@ -444,6 +464,42 @@ func (p *plugin) handleStateMessage(client mqtt.Client, msg mqtt.Message) {
 	}
 	if updated > 0 {
 		log.Printf("plugin-zigbee2mqtt: state update on %s — updated %d entities", topic, updated)
+	}
+}
+
+func (p *plugin) handleBridgeState(payload []byte) {
+	state := strings.Trim(strings.TrimSpace(string(payload)), `"`)
+	if strings.HasPrefix(state, "{") {
+		var value struct {
+			State string `json:"state"`
+		}
+		if json.Unmarshal(payload, &value) == nil {
+			state = value.State
+		}
+	}
+	online := strings.EqualFold(state, "online")
+	if online {
+		if p.reporter != nil {
+			p.reporter.Ready(bridgeResource)
+		}
+	} else {
+		p.resourceDegraded("bridge_offline", fmt.Errorf("Zigbee2MQTT bridge reported %q", state))
+	}
+	if p.bridgeState != nil {
+		select {
+		case p.bridgeState <- online:
+		default:
+		}
+	}
+}
+
+func (p *plugin) resourceDegraded(code string, err error) {
+	if p.reporter != nil {
+		message := "resource unavailable"
+		if err != nil {
+			message = err.Error()
+		}
+		p.reporter.Degraded(bridgeResource, code, message, true)
 	}
 }
 
@@ -799,38 +855,6 @@ func (p *plugin) handleCommand(addr messenger.Address, cmd any) {
 	}
 
 	log.Printf("plugin-zigbee2mqtt: [CMD] DONE entity=%s type=%T total=%s", addr.Key(), cmd, time.Since(recvAt).Round(time.Millisecond))
-}
-
-// ---------------------------------------------------------------------------
-// Demo device — a sample device registered at startup
-// ---------------------------------------------------------------------------
-
-func (p *plugin) seedDemo() error {
-	entities := []domain.Entity{
-		{
-			ID: "demo_light", Plugin: pluginID, DeviceID: "demo_device",
-			Type: "light", Name: "Demo Light",
-			Commands: []string{"light_turn_on", "light_turn_off", "light_set_brightness", "light_set_color_temp"},
-			State:    domain.Light{Power: false, Brightness: 128},
-		},
-		{
-			ID: "demo_switch", Plugin: pluginID, DeviceID: "demo_device",
-			Type: "switch", Name: "Demo Switch",
-			Commands: []string{"switch_turn_on", "switch_turn_off", "switch_toggle"},
-			State:    domain.Switch{Power: false},
-		},
-		{
-			ID: "demo_sensor", Plugin: pluginID, DeviceID: "demo_device",
-			Type: "sensor", Name: "Demo Temperature",
-			State: domain.Sensor{Value: 21.0, Unit: "°C"},
-		},
-	}
-	for _, e := range entities {
-		if err := p.store.Save(e); err != nil {
-			return fmt.Errorf("save %s: %w", e.ID, err)
-		}
-	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
