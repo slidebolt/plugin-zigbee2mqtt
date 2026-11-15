@@ -136,7 +136,7 @@ func (p *plugin) Hello() contract.HelloResponse {
 		Constraints: []contract.SetupConstraint{{Kind: "all_or_none", Fields: []string{"username", "password"}}},
 		Resources: []contract.ExternalResourceDefinition{{
 			ID: bridgeResource, Kind: contract.ExternalResourceService, Name: "Zigbee2MQTT bridge", Description: "Publishes Zigbee device discovery and state through its MQTT broker.",
-			Fields: []string{"broker", "username", "password", "base_topic"}, Activation: contract.ResourceActivation{Mode: contract.ResourceActivationAlways},
+			Fields: []string{"broker", "username", "password", "base_topic"}, Activation: contract.ResourceActivation{Mode: contract.ResourceActivationConfigured, Fields: []string{"broker"}},
 		}},
 	}
 	return contract.HelloResponse{

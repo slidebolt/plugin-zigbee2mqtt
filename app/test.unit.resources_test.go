@@ -3,8 +3,16 @@ package app
 import (
 	"testing"
 
+	contract "github.com/slidebolt/sb-contract"
 	runtime "github.com/slidebolt/sb-runtime"
 )
+
+func TestBridgeResourceActivatesOnlyWhenConfigured(t *testing.T) {
+	resources := New().Hello().Setup.Resources
+	if len(resources) != 1 || resources[0].Activation.Mode != contract.ResourceActivationConfigured {
+		t.Fatalf("bridge resource must activate only when configured: %+v", resources)
+	}
+}
 
 func TestUnconfiguredPluginStartsDisabled(t *testing.T) {
 	t.Setenv("Z2M_MQTT_BROKER", "")
