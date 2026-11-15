@@ -123,6 +123,20 @@ func (p *plugin) Hello() contract.HelloResponse {
 		Kind:            contract.KindPlugin,
 		ContractVersion: contract.ContractVersion,
 		DependsOn:       []string{"messenger", "storage"},
+		Definitions:     contract.DescribePlugin("Zigbee2MQTT", "Connects to an existing Zigbee2MQTT deployment and translates its discovery and state topics into shared entities.", "binary_sensor", "button", "climate", "cover", "light", "lock", "number", "select", "sensor", "switch"),
+		Setup: &contract.SetupDefinition{
+			Mode:     contract.SetupSelectable,
+			Category: "Devices",
+			Fields: []contract.SetupField{
+				{Key: "broker", Environment: "Z2M_MQTT_BROKER", Name: "MQTT broker URL", Description: "MQTT broker URL used by Zigbee2MQTT.", Control: contract.SetupText, Format: "uri", Required: true},
+				{Key: "username", Environment: "Z2M_MQTT_USERNAME", Name: "MQTT username", Description: "Optional MQTT broker username.", Control: contract.SetupText},
+				{Key: "password", Environment: "Z2M_MQTT_PASSWORD", Name: "MQTT password", Description: "Optional MQTT broker password.", Control: contract.SetupSecret, Sensitive: true},
+				{Key: "discovery_prefix", Environment: "Z2M_DISCOVERY_PREFIX", Name: "Discovery prefix", Description: "Home Assistant discovery prefix published by Zigbee2MQTT.", Control: contract.SetupText, Advanced: true, Default: json.RawMessage(`"homeassistant"`)},
+				{Key: "base_topic", Environment: "Z2M_BASE_TOPIC", Name: "Base topic", Description: "Zigbee2MQTT base topic.", Control: contract.SetupText, Advanced: true, Default: json.RawMessage(`"zigbee2mqtt"`)},
+				{Key: "client_id", Environment: "Z2M_CLIENT_ID", Name: "MQTT client ID", Description: "Stable unique MQTT client identifier for this installation.", Control: contract.SetupText, Required: true, Generate: "uuid"},
+			},
+			Constraints: []contract.SetupConstraint{{Kind: "all_or_none", Fields: []string{"username", "password"}}},
+		},
 	}
 }
 
