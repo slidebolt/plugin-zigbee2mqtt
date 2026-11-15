@@ -156,6 +156,10 @@ func (p *plugin) OnStart(deps map[string]json.RawMessage) (json.RawMessage, erro
 	p.mqttCfg = loadMQTTConfig()
 	p.stateTopicIndex = make(map[string][]domain.EntityKey)
 	p.bridgeState = make(chan bool, 1)
+	if strings.TrimSpace(p.mqttCfg.Broker) == "" {
+		log.Println("plugin-zigbee2mqtt: disabled; Z2M_MQTT_BROKER is not configured")
+		return nil, nil
+	}
 
 	// Connect to Messenger SDK
 	msg, err := messenger.Connect(deps)

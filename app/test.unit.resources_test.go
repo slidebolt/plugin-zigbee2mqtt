@@ -6,6 +6,18 @@ import (
 	runtime "github.com/slidebolt/sb-runtime"
 )
 
+func TestUnconfiguredPluginStartsDisabled(t *testing.T) {
+	t.Setenv("Z2M_MQTT_BROKER", "")
+
+	p := New()
+	if _, err := p.OnStart(nil); err != nil {
+		t.Fatalf("unconfigured plugin must remain disabled and ready: %v", err)
+	}
+	if p.msg != nil || p.store != nil || p.mqtt != nil {
+		t.Fatal("disabled plugin initialized runtime dependencies")
+	}
+}
+
 type resourceRecorder struct{ states []string }
 
 func (r *resourceRecorder) Ready(string)                    { r.states = append(r.states, "ready") }
